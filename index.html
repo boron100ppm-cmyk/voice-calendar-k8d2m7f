@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ボイスカレンダー - 音声でまとめて予定登録</title>
+  <!-- Google Fonts: Outfit & Noto Sans JP -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons (CDN) -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="logo">
+        <i data-lucide="calendar-range" class="logo-icon"></i>
+        <h1>VoiceCal</h1>
+      </div>
+      <button id="btn-settings" class="icon-button" title="設定">
+        <i data-lucide="settings"></i>
+      </button>
+    </header>
+
+    <main class="app-main">
+      <!-- 音声入力セクション -->
+      <section class="voice-section card">
+        <div class="section-header">
+          <h2>音声を入力</h2>
+          <span class="status-indicator" id="speech-status">待機中</span>
+        </div>
+        
+        <!-- 音声波形・マイクボタン -->
+        <div class="mic-container">
+          <div class="pulse-ring"></div>
+          <button id="btn-mic" class="mic-button" title="マイクを押して話す">
+            <i data-lucide="mic" class="mic-icon"></i>
+          </button>
+        </div>
+
+        <p class="instruction">ボタンを押して、予定を話してください。<br><small>（例：「明日10時からA社とミーティング。来週月曜の14時から歯医者。」）</small></p>
+
+        <!-- 認識テキストエリア -->
+        <div class="text-input-container">
+          <textarea id="text-input" placeholder="ここに音声認識されたテキストが表示されます。手動での入力・修正も可能です..."></textarea>
+          <div class="text-actions">
+            <button id="btn-clear-text" class="text-action-button" title="クリア">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </div>
+        </div>
+
+        <button id="btn-analyze" class="primary-button">
+          <i data-lucide="sparkles"></i>
+          予定を解析する
+        </button>
+      </section>
+
+      <!-- 解析結果セクション -->
+      <section class="results-section card hidden" id="results-section">
+        <div class="section-header">
+          <h2>解析された予定</h2>
+          <span class="count-badge" id="event-count">0 件</span>
+        </div>
+
+        <div class="events-list" id="events-list">
+          <!-- 予定カードが動的に挿入されます -->
+        </div>
+
+        <div class="bulk-actions hidden" id="bulk-actions">
+          <p class="bulk-info">※ Googleカレンダーへの登録は、各予定カードの追加ボタンから個別に行えます。</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ローディングオーバーレイ -->
+    <div id="loading-overlay" class="overlay hidden">
+      <div class="loader-content">
+        <div class="spinner"></div>
+        <p id="loading-message">AIが予定を解析中...</p>
+      </div>
+    </div>
+
+    <!-- 設定モーダル -->
+    <div id="settings-modal" class="modal-overlay hidden">
+      <div class="modal card">
+        <div class="modal-header">
+          <h3>設定</h3>
+          <button id="btn-close-settings" class="icon-button">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <!-- APIキー設定 -->
+          <div class="setting-group">
+            <label for="input-api-key">Gemini API キー</label>
+            <div class="input-with-button">
+              <input type="password" id="input-api-key" placeholder="AIzaSy...">
+              <button id="btn-toggle-api-key" class="icon-button" type="button">
+                <i data-lucide="eye"></i>
+              </button>
+            </div>
+            <p class="help-text">
+              予定を解析・補正するために必要です。<a href="https://aistudio.google.com/" target="_blank" rel="noopener">Google AI Studio</a> で無料で取得できます。キーはローカルブラウザにのみ保存されます。
+            </p>
+          </div>
+
+          <!-- AIモデル設定 -->
+          <div class="setting-group">
+            <label for="select-model">優先使用する AI モデル</label>
+            <select id="select-model">
+              <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (高速・省エネ)</option>
+              <option value="gemini-3.5-flash">gemini-3.5-flash (高精度・複雑な文脈用)</option>
+            </select>
+            <p class="help-text">
+              デフォルトは高速に応答する 3.1-flash-lite です。エラーやタイムアウト時には自動でもう一方のモデルへフォールバックされます。
+            </p>
+          </div>
+
+          <!-- 家族の名前設定 -->
+          <div class="setting-group">
+            <label for="input-family-names">家族の名前リスト</label>
+            <input type="text" id="input-family-names" placeholder="パパ, ママ, りく, とおり">
+            <p class="help-text">
+              カンマ区切りで入力してください。音声認識時にこれらの名前に合わせて自動的にひらがな表記などに補正します。
+            </p>
+          </div>
+
+          <!-- 固有名詞辞書設定（強化版） -->
+          <div class="setting-group">
+            <label>学習済みの固有名詞・単語辞書</label>
+            <div class="dictionary-form">
+              <input type="text" id="input-dict-word" placeholder="登録する単語（例: アプロ塾）">
+              <div class="dictionary-form-row">
+                <input type="text" id="input-dict-reading" placeholder="よみがな（例: あぷろじゅく）">
+                <input type="text" id="input-dict-aliases" placeholder="誤認識例（例: アプリ塾, 油宿）">
+              </div>
+              <button id="btn-add-word" class="secondary-button" style="width: 100%; margin-top: 8px;">
+                <i data-lucide="plus" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;"></i>
+                辞書に追加
+              </button>
+            </div>
+            <div class="dictionary-tags-container">
+              <div class="dictionary-tags" id="dictionary-tags">
+                <!-- 単語タグが動的に挿入されます -->
+              </div>
+            </div>
+            <p class="help-text">
+              予定の登録時に自動学習するほか、手動でも登録できます。よみがなや誤認識例を登録することで、音声入力時の「音の響き」から正しい言葉へAIが超高精度で補正します。
+            </p>
+          </div>
+
+          <!-- 設定の保存と復元（移行用） -->
+          <div class="setting-group" style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 10px;">
+            <label>設定の移行（バックアップと復元）</label>
+            <div style="display: flex; gap: 10px; margin-top: 8px;">
+              <button id="btn-export-settings" class="secondary-button" type="button" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                <i data-lucide="download" style="width:16px;height:16px;"></i>
+                設定を書き出す
+              </button>
+              <button id="btn-import-settings" class="secondary-button" type="button" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                <i data-lucide="upload" style="width:16px;height:16px;"></i>
+                設定を読み込む
+              </button>
+              <input type="file" id="input-import-file" accept=".json" class="hidden">
+            </div>
+            <p class="help-text">
+              APIキー、優先モデル、家族の名前、および単語辞書をファイルに書き出して、別のPCのブラウザにそのままインポートして同期できます。
+            </p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="btn-save-settings" class="primary-button">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // Lucide アイコンの初期化
+    lucide.createIcons();
+  </script>
+</body>
+</html>
