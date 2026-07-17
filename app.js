@@ -2,131 +2,15 @@
 // App Configuration
 // ==========================================================================
 
-const CALENDAR_HISTORY = [
-  "歯医者",
-  "洗面所ドア修理",
-  "お迎え",
-  "サッカー",
-  "ゆみこクリニック",
-  "冬服",
-  "健康管理、連絡",
-  "学習公開",
-  "啓明面談",
-  "学校",
-  "日産",
-  "16時半学童",
-  "新神戸おひさま",
-  "TR",
-  "病院",
-  "算数教室",
-  "リタリコ親レッスン",
-  "カット",
-  "テスト",
-  "サッカー観戦",
-  "眼科",
-  "人間ドック",
-  "矯正歯科",
-  "休み",
-  "病院",
-  "針",
-  "耳鼻科",
-  "おひさまファミリークリニック",
-  "夏祭り",
-  "ホンダ",
-  "終業式",
-  "学童面談",
-  "リィスポーツ",
-  "停電",
-  "あさり",
-  "おひさまクリニック",
-  "芦屋病院",
-  "飲み会",
-  "終業式",
-  "面談",
-  "音楽会",
-  "学童おやつ持参",
-  "学童継続説明会",
-  "エアコン工事",
-  "hacoキャンプ",
-  "キャンプ",
-  "学童誕生日会",
-  "おしりの世界",
-  "山の手内科クリニック",
-  "学習公開",
-  "みなと元町形成外科",
-  "みなと元町小児科",
-  "アレルギー面談　資料持参",
-  "免許更新",
-  "みなと元町皮膚科",
-  "リィ",
-  "排水溝掃除",
-  "リタリコ湊小学校",
-  "予防接種",
-  "イッポ",
-  "矯正歯科",
-  "大分帰省",
-  "パパ帰り遅い",
-  "啓明授業参観",
-  "ルル予防接種",
-  "皮膚科",
-  "TOTOメンテナンス",
-  "土曜日講座",
-  "ヤマト",
-  "文化祭",
-  "はは歯科",
-  "遠足",
-  "休校日",
-  "啓明面談",
-  "保護者会",
-  "水着",
-  "クリスマスパーティー",
-  "教育講演会",
-  "めまいの耳鼻科",
-  "キャリアパスポート",
-  "ダンス",
-  "みんなまる",
-  "アサリ",
-  "出社",
-  "カット",
-  "プール",
-  "運動会",
-  "めまい",
-  "湊小学校面談",
-  "学童おやつ",
-  "みなと元町外科",
-  "明星祭",
-  "イドミィ",
-  "プール",
-  "検査",
-  "部活",
-  "保護者会",
-  "リタリコ面談",
-  "三菱病院診察",
-  "リィ面談",
-  "マンション管理組合",
-  "大分行き",
-  "終業式",
-  "始業式",
-  "税理士",
-  "美容院",
-  "リタリコ訪問",
-  "整形外科",
-  "オーラ点検",
-  "みなと元町小児科　インフルエンザ予防接種",
-  "ルルクリニック",
-  "おひさま検査",
-  "浴室ドア修理",
-  "学校個別シート",
-  "リタリコ新大阪面談",
-  "啓明マラソン",
-  "期末考査",
-];
+const AUTH_PASSWORD = 'ryo1234'; // 簡易認証パスワード
 
 const STATE_KEYS = {
   API_KEY: 'voicecal_api_key',
   DICTIONARY: 'voicecal_dictionary_v2', // バージョン2に変更して構造化データに対応
   PREFERRED_MODEL: 'voicecal_preferred_model',
-  FAMILY_NAMES: 'voicecal_family_names'
+  FAMILY_NAMES: 'voicecal_family_names',
+  AUTHENTICATED: 'voicecal_authenticated',
+  CALENDAR_HISTORY: 'voicecal_calendar_history'
 };
 
 let appState = {
@@ -134,6 +18,8 @@ let appState = {
   dictionary: [], // 構造: { word: string, reading: string, aliases: string }
   model: 'gemini-3.1-flash-lite', // デフォルトモデルを高速な 3.1-flash-lite に
   familyNames: ['パパ', 'ママ', 'りく', 'とおり'],
+  calendarHistory: [], // カレンダー履歴（別ファイルからインポート可能）
+  authenticated: false,
   isRecording: false,
   mediaRecorder: null,
   audioChunks: [],
@@ -147,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try {
     loadState();
     initDOM();
+    checkAuth();
     initSpeechRecognition();
     renderDictionaryTags();
   } catch (error) {
@@ -155,10 +42,34 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+function checkAuth() {
+  if (appState.authenticated) {
+    elPasswordOverlay.classList.add('hidden');
+  } else {
+    elPasswordOverlay.classList.remove('hidden');
+    elInputAuthPassword.focus();
+  }
+}
+
+function handleAuthSubmit() {
+  const pwd = elInputAuthPassword.value.trim();
+  if (pwd === AUTH_PASSWORD) {
+    appState.authenticated = true;
+    localStorage.setItem(STATE_KEYS.AUTHENTICATED, 'true');
+    elPasswordOverlay.classList.add('hidden');
+    console.log('Authentication passed.');
+  } else {
+    alert('パスワードが正しくありません。');
+    elInputAuthPassword.value = '';
+    elInputAuthPassword.focus();
+  }
+}
+
 // Load state from localStorage & migration support
 function loadState() {
   appState.apiKey = localStorage.getItem(STATE_KEYS.API_KEY) || '';
   appState.model = localStorage.getItem(STATE_KEYS.PREFERRED_MODEL) || 'gemini-3.1-flash-lite';
+  appState.authenticated = localStorage.getItem(STATE_KEYS.AUTHENTICATED) === 'true';
   
   const savedFamilyNames = localStorage.getItem(STATE_KEYS.FAMILY_NAMES);
   if (savedFamilyNames) {
@@ -198,6 +109,17 @@ function loadState() {
   } else {
     appState.dictionary = [];
   }
+
+  const savedHistory = localStorage.getItem(STATE_KEYS.CALENDAR_HISTORY);
+  if (savedHistory) {
+    try {
+      appState.calendarHistory = JSON.parse(savedHistory) || [];
+    } catch (e) {
+      appState.calendarHistory = [];
+    }
+  } else {
+    appState.calendarHistory = [];
+  }
 }
 
 // Save state to localStorage
@@ -206,6 +128,7 @@ function saveState() {
   localStorage.setItem(STATE_KEYS.DICTIONARY, JSON.stringify(appState.dictionary));
   localStorage.setItem(STATE_KEYS.PREFERRED_MODEL, appState.model);
   localStorage.setItem(STATE_KEYS.FAMILY_NAMES, JSON.stringify(appState.familyNames));
+  localStorage.setItem(STATE_KEYS.CALENDAR_HISTORY, JSON.stringify(appState.calendarHistory));
 }
 
 // DOM Elements & Event Listeners
@@ -215,6 +138,7 @@ let elLoadingOverlay, elLoadingMessage;
 let elSettingsModal, elBtnSettings, elBtnCloseSettings, elInputApiKey, elSelectModel, elInputFamilyNames;
 let elBtnToggleApiKey, elInputDictWord, elInputDictReading, elInputDictAliases, elBtnAddWord, elDictionaryTags, elBtnSaveSettings;
 let elBtnExportSettings, elBtnImportSettings, elInputImportFile;
+let elPasswordOverlay, elInputAuthPassword, elBtnSubmitAuth;
 
 function initDOM() {
   elMicBtn = document.getElementById('btn-mic');
@@ -253,6 +177,11 @@ function initDOM() {
   elBtnImportSettings = document.getElementById('btn-import-settings');
   elInputImportFile = document.getElementById('input-import-file');
 
+  // パスワード認証要素
+  elPasswordOverlay = document.getElementById('password-overlay');
+  elInputAuthPassword = document.getElementById('input-auth-password');
+  elBtnSubmitAuth = document.getElementById('btn-submit-auth');
+
   // Input events
   elBtnClearText.addEventListener('click', () => {
     elTextInput.value = '';
@@ -269,6 +198,10 @@ function initDOM() {
   elInputImportFile.addEventListener('change', handleImportFile);
   elBtnAddWord.addEventListener('click', handleAddWord);
   elBtnSaveSettings.addEventListener('click', handleSaveSettings);
+  elBtnSubmitAuth.addEventListener('click', handleAuthSubmit);
+  elInputAuthPassword.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') handleAuthSubmit();
+  });
 
   // Key press events in settings form
   const handleKeypress = (e) => {
@@ -393,7 +326,7 @@ ${appState.dictionary.map(item => {
 
   // 2. 過去のカレンダー履歴コンテキスト
   const historyContext = `【過去の予定履歴リスト】:
-${CALENDAR_HISTORY.map(item => `  - "${item}"`).join('\n')}`;
+${appState.calendarHistory.map(item => `  - "${item}"`).join('\n')}`;
 
   // 家族名ルールの動的生成
   const familyNamesListStr = appState.familyNames.map(name => `   - "${name}"`).join('\n');
@@ -670,7 +603,8 @@ function exportSettings() {
     apiKey: appState.apiKey,
     model: appState.model,
     familyNames: appState.familyNames,
-    dictionary: appState.dictionary
+    dictionary: appState.dictionary,
+    calendarHistory: appState.calendarHistory // カレンダー履歴を追加
   };
   
   const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -696,12 +630,25 @@ function handleImportFile(event) {
     try {
       const importedData = JSON.parse(e.target.result);
       
-      // バリデーション
+      // パターン1: 配列形式（カレンダー履歴単体のインポート）
+      if (Array.isArray(importedData)) {
+        if (!confirm(`カレンダー履歴データをインポートします（件数: ${importedData.length}件）。よろしいですか？`)) {
+          elInputImportFile.value = '';
+          return;
+        }
+        appState.calendarHistory = importedData;
+        saveState();
+        alert('カレンダー履歴を読み込みました！');
+        console.log('Calendar history imported successfully.');
+        return;
+      }
+      
+      // パターン2: オブジェクト形式（設定バックアップ）
       if (importedData.apiKey === undefined || !Array.isArray(importedData.dictionary)) {
         throw new Error('設定ファイルのフォーマットが不正です。');
       }
       
-      if (!confirm('現在の設定（APIキー、モデル、家族名、辞書）が上書きされます。よろしいですか？')) {
+      if (!confirm('現在の設定（APIキー、モデル、家族名、辞書、履歴）が上書きされます。よろしいですか？')) {
         elInputImportFile.value = ''; // クリア
         return;
       }
@@ -711,6 +658,7 @@ function handleImportFile(event) {
       appState.model = importedData.model || 'gemini-3.1-flash-lite';
       appState.familyNames = Array.isArray(importedData.familyNames) ? importedData.familyNames : ['パパ', 'ママ', 'りく', 'とおり'];
       appState.dictionary = importedData.dictionary;
+      appState.calendarHistory = Array.isArray(importedData.calendarHistory) ? importedData.calendarHistory : [];
       
       saveState();
       
@@ -775,11 +723,11 @@ ${appState.dictionary.map(item => {
 
   // 過去の予定履歴コンテキストの組み立て（表記揺れ統一用、入力テキストに関連するものに事前フィルタリングして軽量化）
   const cleanTokens = text.split(/[\s　、。にでとをが行くの]/).filter(t => t.length >= 2);
-  const filteredHistory = CALENDAR_HISTORY.filter(item => {
+  const filteredHistory = appState.calendarHistory.filter(item => {
     return cleanTokens.some(token => item.includes(token) || token.includes(item));
   });
   // 関連するものがない場合は、デフォルトで最初の15件をフォールバックとして渡す
-  const displayHistory = filteredHistory.length > 0 ? filteredHistory : CALENDAR_HISTORY.slice(0, 15);
+  const displayHistory = filteredHistory.length > 0 ? filteredHistory : appState.calendarHistory.slice(0, 15);
 
   const historyContext = `【過去の予定履歴リスト】:
 以下のリストはユーザーが過去1年間に登録した正確な予定タイトル（カレンダー履歴）の一部です。
