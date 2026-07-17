@@ -2,7 +2,7 @@
 // App Configuration
 // ==========================================================================
 
-const AUTH_PASSWORD = 'ryo1234'; // 簡易認証パスワード
+const AUTH_PASSWORD_HASH = 'ded99f0124f980d632b0c5fb56683374956f5c632df5348995de5a2e58d8058d'; // 簡易認証パスワードのSHA-256ハッシュ値
 
 const STATE_KEYS = {
   API_KEY: 'voicecal_api_key',
@@ -51,9 +51,17 @@ function checkAuth() {
   }
 }
 
-function handleAuthSubmit() {
+async function handleAuthSubmit() {
   const pwd = elInputAuthPassword.value.trim();
-  if (pwd === AUTH_PASSWORD) {
+  
+  // SHA-256ハッシュの計算
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pwd);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+  if (hashHex === AUTH_PASSWORD_HASH) {
     appState.authenticated = true;
     localStorage.setItem(STATE_KEYS.AUTHENTICATED, 'true');
     elPasswordOverlay.classList.add('hidden');
