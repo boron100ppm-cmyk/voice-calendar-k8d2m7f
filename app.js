@@ -17,7 +17,7 @@ let appState = {
   apiKey: '',
   dictionary: [], // 構造: { word: string, reading: string, aliases: string }
   model: 'gemini-3.1-flash-lite', // デフォルトモデルを高速な 3.1-flash-lite に
-  familyNames: ['パパ', 'ママ', 'りく', 'とおり'],
+  familyNames: [],
   calendarHistory: [], // カレンダー履歴（別ファイルからインポート可能）
   authenticated: false,
   isRecording: false,
@@ -76,10 +76,10 @@ function loadState() {
     try {
       appState.familyNames = JSON.parse(savedFamilyNames);
     } catch (e) {
-      appState.familyNames = ['パパ', 'ママ', 'りく', 'とおり'];
+      appState.familyNames = [];
     }
   } else {
-    appState.familyNames = ['パパ', 'ママ', 'りく', 'とおり'];
+    appState.familyNames = [];
   }
 
   // v1 (文字列配列) から v2 (オブジェクト配列) への移行サポート
