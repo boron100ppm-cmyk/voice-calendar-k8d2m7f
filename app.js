@@ -16,7 +16,7 @@ const STATE_KEYS = {
 let appState = {
   apiKey: '',
   dictionary: [], // 構造: { word: string, reading: string, aliases: string }
-  model: 'gemini-3.1-flash-lite', // デフォルトモデルを高速な 3.1-flash-lite に
+  model: 'gemini-3.5-flash-lite', // デフォルトモデルを高速な 3.5-flash-lite に
   familyNames: [],
   calendarHistory: [], // カレンダー履歴（別ファイルからインポート可能）
   authenticated: false,
@@ -76,7 +76,15 @@ async function handleAuthSubmit() {
 // Load state from localStorage & migration support
 function loadState() {
   appState.apiKey = localStorage.getItem(STATE_KEYS.API_KEY) || '';
-  appState.model = localStorage.getItem(STATE_KEYS.PREFERRED_MODEL) || 'gemini-3.1-flash-lite';
+  
+  let savedModel = localStorage.getItem(STATE_KEYS.PREFERRED_MODEL) || 'gemini-3.5-flash-lite';
+  // 旧モデルが保存されている場合は最新モデルへ置き換え
+  if (savedModel === 'gemini-3.1-flash-lite') {
+    savedModel = 'gemini-3.5-flash-lite';
+  } else if (savedModel === 'gemini-3.5-flash') {
+    savedModel = 'gemini-3.6-flash';
+  }
+  appState.model = savedModel;
   appState.authenticated = localStorage.getItem(STATE_KEYS.AUTHENTICATED) === 'true';
   
   const savedFamilyNames = localStorage.getItem(STATE_KEYS.FAMILY_NAMES);
@@ -402,7 +410,7 @@ ${historyContext}
 
   try {
     let modelName = appState.model; // 優先モデルを使用
-    const fallbackModel = modelName === 'gemini-3.1-flash-lite' ? 'gemini-3.5-flash' : 'gemini-3.1-flash-lite';
+    const fallbackModel = modelName === 'gemini-3.5-flash-lite' ? 'gemini-3.6-flash' : 'gemini-3.5-flash-lite';
     let response;
     let useFallback = false;
 
@@ -467,8 +475,14 @@ ${historyContext}
       return;
     }
 
-    // テキストエリアに書き起こしテキストを反映
-    elTextInput.value = transcript.trim();
+    // テキストエリアに書き起こしテキストを反映（既存テキストがある場合は改行して追記）
+    const currentText = elTextInput.value.trim();
+    const newTranscript = transcript.trim();
+    if (currentText) {
+      elTextInput.value = currentText + '\n' + newTranscript;
+    } else {
+      elTextInput.value = newTranscript;
+    }
 
     hideLoading();
   } catch (error) {
@@ -663,7 +677,7 @@ function handleImportFile(event) {
       
       // 状態への適用
       appState.apiKey = importedData.apiKey || '';
-      appState.model = importedData.model || 'gemini-3.1-flash-lite';
+      appState.model = importedData.model || 'gemini-3.5-flash-lite';
       appState.familyNames = Array.isArray(importedData.familyNames) ? importedData.familyNames : ['パパ', 'ママ', 'りく', 'とおり'];
       appState.dictionary = importedData.dictionary;
       appState.calendarHistory = Array.isArray(importedData.calendarHistory) ? importedData.calendarHistory : [];
@@ -710,9 +724,16 @@ async function analyzeTextInternal(text) {
     return;
   }
 
-  // 現在の日時情報を取得
+  // 現在の日時情報を取得（年・月・日・曜日・時刻を明確化）
   const now = new Date();
-  const currentDateTimeStr = now.toLocaleString('ja-JP', { timeZoneName: 'short' });
+  const weekDays = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const date = String(now.getDate()).padStart(2, '0');
+  const dayName = weekDays[now.getDay()];
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const currentDateTimeStr = `${year}年${month}月${date}日 (${dayName}) ${hours}:${minutes}`;
 
   // 音素補正用辞書コンテキストの組み立て
   let dictContext = '';
@@ -729,12 +750,11 @@ ${appState.dictionary.map(item => {
     dictContext = '【補正用固有名詞辞書リスト】: なし';
   }
 
-  // 過去の予定履歴コンテキストの組み立て（表記揺れ統一用、入力テキストに関連するものに事前フィルタリングして軽量化）
+  // 過去の予定履歴コンテキストの組み立て
   const cleanTokens = text.split(/[\s　、。にでとをが行くの]/).filter(t => t.length >= 2);
   const filteredHistory = appState.calendarHistory.filter(item => {
     return cleanTokens.some(token => item.includes(token) || token.includes(item));
   });
-  // 関連するものがない場合は、デフォルトで最初の15件をフォールバックとして渡す
   const displayHistory = filteredHistory.length > 0 ? filteredHistory : appState.calendarHistory.slice(0, 15);
 
   const historyContext = `【過去の予定履歴リスト】:
@@ -744,36 +764,33 @@ ${appState.dictionary.map(item => {
 ${displayHistory.map(item => `  - "${item}"`).join('\n')}`;
 
   // 家族名ルールの動的生成
-  const familyNamesListStr = appState.familyNames.map(name => `   - "${name}"`).join('\n');
-  const familyNamesCsvStr = appState.familyNames.join('」「');
+  const familyNamesListStr = appState.familyNames.length > 0
+    ? appState.familyNames.map(name => `   - "${name}"`).join('\n')
+    : '   - なし';
+  const familyNamesCsvStr = appState.familyNames.length > 0
+    ? appState.familyNames.join('」「')
+    : 'なし';
   const sampleName = appState.familyNames[0] || 'パパ';
 
   const systemInstruction = `
-あなたは優秀なスケジュール管理アシスタントです。ユーザーの音声入力テキストをパースし、複数の予定を構造化したJSONに分解・整理してください。
+あなたはお気遣いのできる優秀なスケジュール管理アシスタントです。ユーザーの音声・テキスト入力から予定を抽出し、指定のJSON形式で出力してください。
 
-## 音素・発音ベースの補正 ＆ 履歴マッチングルール (Chain of Thought):
-必ず JSON の \`thought_process\` フィールドにて、以下の推論プロセスを文章で言語化してから \`events\` を出力してください。
-1. 入力テキスト内に不自然な単語や文脈に合わない単語（音声認識の誤変換）がないか分析する。
-2. もしあれば、「補正用固有名詞辞書リスト」や「過去の予定履歴リスト」の中から、発音（母音の並びなど）が最も近い単語を探し出す。
-   ※ 音声認識の誤変換パターンの例：
-     - 子音の間違い: 「タピックス」「ハニックス」→「サピックス」
-     - 当て字・同音異義: 「過労等リング」→「カローラツーリング」
-     - 一部欠落: 「にっさんおーだ」→「日産オーラ」
-3. 最も適切な固有名詞や予定タイトルに強制置換する理由を説明する。
+## 予定の抽出ルール（必須）:
+1. 入力テキストに日時（例: 「23日」「16時」）や予定件名（例: 「歯医者」「面談」）が含まれる場合、誤認識補正の有無にかかわらず、**必ず1つ以上の予定を 'events' 配列に抽出してください**。
+2. テキストに誤変換が見当たらない場合でも、入力された内容に従って正確に 'events' 配列を作成してください。絶対に空の 'events' 配列を返さないでください。
 
-## 家族の名前に関するルール:
-1. 予定のタイトルの前後に、家族の名前がつくことがよくあります（例: 「${sampleName} 歯医者」や「歯医者 ${sampleName}」など）。
-2. 主な家族の名前の候補は以下の通りです：
+## 日時計算ルール:
+1. 基準日時: ${currentDateTimeStr}
+2. 「23日」などの日付表現は、基準日時の月の日付として計算してください。すでに過ぎている日付の場合は翌月の同日付として計算します。
+3. 開始時間・終了時間（「16時から17時まで」など）を正確に計算し、ISO 8601形式（YYYY-MM-DDTHH:mm:ss）に変換してください。
+4. 終了時間が指定されていない場合は、開始時間の1時間後をデフォルト終了時間として設定してください。
+
+## 家族の名前および固有名詞に関するルール:
+1. 予定のタイトルの前後に、家族の名前がつくことがあります（例: 「${sampleName} 歯医者」や「歯医者 ${sampleName}」など）。
+2. 主な家族の名前の候補:
 ${familyNamesListStr}
-3. 音声入力テキストから予定タイトルを抽出・補正する際、これらの名前と予定の組み合わせを認識し、適切に「[家族の名前] [予定タイトル]」（スペース区切り）として 'title' を抽出してください。
-4. 音声認識エラーで名前自体が誤変換されている場合（例: 家族の名前が他の漢字等に誤変換されている場合）は、必ずリストに指定された表記（「${familyNamesCsvStr}」）に補正してください。
+3. 家族の名前が含まれる場合は「[家族の名前] [予定件名]」（スペース区切り）として 'title' を作成してください。
 
-## データ構築ルール
-1. 上記の推論および家族名ルールに基づき、本来の固有名詞や予定タイトルへ補正した上で予定を抽出してください。
-2. 時間表現（「明日」「今日の15時」「来週月曜」など）は、基準日時から具体的な日付を計算してISO 8601形式（YYYY-MM-DDTHH:mm:ss）に変換してください。
-3. 終了時間が明示されていない場合は、開始時間の1時間後をデフォルトに設定してください。
-
-基準日時: ${currentDateTimeStr}
 ${dictContext}
 ${historyContext}
 `;
@@ -795,33 +812,34 @@ ${historyContext}
       responseSchema: {
         type: 'OBJECT',
         properties: {
-          thought_process: { type: 'STRING', description: '予定抽出を行う前に、テキスト内の不自然な単語や音声認識の誤変換の分析・補正プロセスを1行（50文字以内）で簡潔に記述してください。' },
+          thought_process: { type: 'STRING', description: '予定抽出および補正の分析プロセスを1行（50文字以内）で記述してください。' },
           events: {
             type: 'ARRAY',
             items: {
               type: 'OBJECT',
               properties: {
-                title: { type: 'STRING', description: '予定の件名。音声認識エラーや表記揺れが補正された後の文字列。過去履歴の名称と一致または類似する場合はその名称を使用。' },
+                title: { type: 'STRING', description: '予定の件名。補正後の文字列（例: パパ 歯医者）' },
                 start: { type: 'STRING', description: '予定の開始日時。ISO 8601形式 (YYYY-MM-DDTHH:mm:ss)' },
-                end: { type: 'STRING', description: '予定の終了日時. ISO 8601形式 (YYYY-MM-DDTHH:mm:ss)' },
-                details: { type: 'STRING', description: '場所、メモ、オンラインミーティングURLなど。なければ空文字。' },
+                end: { type: 'STRING', description: '予定の終了日時。ISO 8601形式 (YYYY-MM-DDTHH:mm:ss)' },
+                details: { type: 'STRING', description: '場所やメモなど。なければ空文字。' },
                 keywords: {
                   type: 'ARRAY',
                   items: {
                     type: 'OBJECT',
                     properties: {
-                      word: { type: 'STRING', description: 'この予定の件名や詳細に含まれる、固有名詞や重要単語（例: アプロ塾、加藤さん、Bクリニック）' },
-                      reading: { type: 'STRING', description: 'その固有名詞・単語のひらがなでのよみがな（例: あぷろじゅく、かとうさん、びーくりにっく）' }
+                      word: { type: 'STRING', description: '固有名詞や重要単語' },
+                      reading: { type: 'STRING', description: 'よみがな（ひらがな）' }
                     },
                     required: ['word', 'reading']
                   },
-                  description: 'この予定のタイトルや場所、相手から抽出した、今後も頻出する可能性の高い固有名詞とよみがなのペア。'
+                  description: '固有名詞とよみがなのペア。'
                 }
               },
               required: ['title', 'start', 'end']
             }
           }
-        }
+        },
+        required: ['thought_process', 'events']
       }
     }
   };
@@ -845,7 +863,7 @@ ${historyContext}
 
   try {
     let modelName = appState.model; // 優先モデルを使用
-    const fallbackModel = modelName === 'gemini-3.1-flash-lite' ? 'gemini-3.5-flash' : 'gemini-3.1-flash-lite';
+    const fallbackModel = modelName === 'gemini-3.5-flash-lite' ? 'gemini-3.6-flash' : 'gemini-3.5-flash-lite';
     let response;
     let useFallback = false;
 
@@ -909,7 +927,11 @@ ${historyContext}
       throw new Error('解析結果が取得できませんでした。');
     }
 
-    const result = JSON.parse(responseText);
+    let cleanJsonStr = responseText.trim();
+    if (cleanJsonStr.startsWith('```')) {
+      cleanJsonStr = cleanJsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    }
+    const result = JSON.parse(cleanJsonStr);
     appState.parsedEvents = result.events || [];
 
     renderEvents();
